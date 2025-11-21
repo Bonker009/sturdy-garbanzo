@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  lucky-draw:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lucky-draw-app
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      # Persist data directory (rewards.json)
+      - ./data:/app/data
+      # Persist uploaded reward images
+      - ./public/rewards:/app/public/rewards
+      # Persist uploaded background images
+      - ./public/background:/app/public/background
+    restart: always
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
