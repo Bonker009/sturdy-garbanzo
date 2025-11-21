@@ -18,6 +18,8 @@ services:
       - ./public/rewards:/app/public/rewards
       # Persist uploaded background images
       - ./public/background:/app/public/background
+    # Run as root initially to fix permissions, entrypoint will switch to nextjs user
+    user: "0:0"
     restart: always
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]

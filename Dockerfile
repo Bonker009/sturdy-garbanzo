@@ -40,12 +40,21 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 RUN mkdir -p /app/data /app/public/rewards /app/public/background && \
     chown -R nextjs:nodejs /app/data /app/public/rewards /app/public/background
 
-USER nextjs
+# Install su-exec for user switching
+RUN apk add --no-cache su-exec
+
+# Copy and set up entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Switch to root temporarily for entrypoint (it will switch back to nextjs)
+USER root
 
 EXPOSE 3000
 
 ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "server.js"]
 
