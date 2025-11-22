@@ -195,7 +195,7 @@ export default function RewardFormModal({ isOpen, onOpenChange, onAddReward, edi
           <Button
             onClick={handleSubmit}
             disabled={!name || !quantity || !image}
-            className="bg-linear-to-r from-primary to-accent text-background font-bold uppercase tracking-widest"
+            className="bg-gradient-to-r from-primary to-accent text-background font-bold uppercase tracking-widest"
           >
             {editingReward ? "Update Reward" : "Add Reward"}
           </Button>

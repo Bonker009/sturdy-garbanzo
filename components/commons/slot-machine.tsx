@@ -111,7 +111,7 @@ const SlotMachine = forwardRef<{ spin: (callback: (winner: string) => void) => v
         {/* Header */}
         <div className="text-center mb-8">
           <h2 className="text-primary text-sm uppercase tracking-widest">Lucky Draw Event</h2>
-          <div className="w-24 h-px bg-linear-to-r from-transparent via-primary to-transparent mx-auto mt-2" />
+          <div className="w-24 h-px bg-gradient-to-r from-transparent via-primary to-transparent mx-auto mt-2" />
         </div>
 
         {/* Slot Window */}
@@ -126,7 +126,7 @@ const SlotMachine = forwardRef<{ spin: (callback: (winner: string) => void) => v
         <div className="mt-10 flex justify-center">
           <Button
             disabled={isSpinning || names.length === 0}
-            className="w-64 py-6 bg-linear-to-b from-[#cfaa5b] to-[#9e7c28] text-primary-foreground text-xl font-bold uppercase tracking-widest rounded-sm hover:from-[#e6c475] hover:to-[#b38f34] shadow-lg"
+            className="w-64 py-6 bg-gradient-to-b from-[#cfaa5b] to-[#9e7c28] text-primary-foreground text-xl font-bold uppercase tracking-widest rounded-sm hover:from-[#e6c475] hover:to-[#b38f34] shadow-lg"
             onClick={() => {
               // Callback handled through ref
             }}

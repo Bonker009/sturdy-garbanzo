@@ -25,7 +25,12 @@ const DrawingStage = forwardRef<
   // Initialize reel items when participants change
   useEffect(() => {
     if (participants.length > 0) {
-      const previewItems = ["", ...participants.slice(0, 5)];
+      // Pre-populate with more items for smoother first animation
+      const previewItems: string[] = [""]; // Top padding
+      // Add enough items to fill the visible area and more for smooth scrolling
+      for (let i = 0; i < Math.max(20, participants.length); i++) {
+        previewItems.push(participants[i % participants.length]);
+      }
       setReelItems(previewItems.length > 1 ? previewItems : ["Waiting for Guests..."]);
       // Reset reel position
       if (reelRef.current) {
@@ -76,41 +81,43 @@ const DrawingStage = forwardRef<
 
       setReelItems(newReelItems);
 
-      // Animate after render
-      setTimeout(() => {
-        const reel = reelRef.current;
-        if (!reel) return;
-
-        // Reset Position
-        reel.style.transition = "none";
-        reel.style.transform = "translateY(0px)";
-
-        // Force reflow
-        void reel.offsetHeight;
-
-        // Calculate Target - Winner should be at index 1 (middle of 3 visible items)
-        const targetY = -((winnerItemIndex - 1) * ITEM_HEIGHT);
-        const duration = 5000;
-
-        // Start Animation
+      // Animate after render - use double requestAnimationFrame for smoother start
+      requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          reel.style.transition = `transform ${duration}ms cubic-bezier(0.25, 1, 0.5, 1)`;
-          reel.style.transform = `translateY(${targetY}px)`;
-        });
+          const reel = reelRef.current;
+          if (!reel) return;
 
-        // Finish
-        setTimeout(() => {
-          setIsSpinning(false);
-          setHighlightIndex(winnerItemIndex);
+          // Reset Position
+          reel.style.transition = "none";
+          reel.style.transform = "translateY(0px)";
 
-          // Call callback with winner
+          // Force reflow
+          void reel.offsetHeight;
+
+          // Calculate Target - Winner should be at index 1 (middle of 3 visible items)
+          const targetY = -((winnerItemIndex - 1) * ITEM_HEIGHT);
+          const duration = 5000;
+
+          // Start Animation with smooth easing
+          requestAnimationFrame(() => {
+            reel.style.transition = `transform ${duration}ms cubic-bezier(0.17, 0.67, 0.12, 0.99)`;
+            reel.style.transform = `translateY(${targetY}px)`;
+          });
+
+          // Finish
           setTimeout(() => {
-            if (callbackRef.current) {
-              callbackRef.current(winnerName);
-            }
-          }, 500);
-        }, duration);
-      }, 0);
+            setIsSpinning(false);
+            setHighlightIndex(winnerItemIndex);
+
+            // Call callback with winner
+            setTimeout(() => {
+              if (callbackRef.current) {
+                callbackRef.current(winnerName);
+              }
+            }, 500);
+          }, duration);
+        });
+      });
     },
   }));
 
@@ -126,7 +133,7 @@ const DrawingStage = forwardRef<
       {/* Reel Window */}
       <div className="slot-window h-[270px] w-full bg-[#fdfbf7] relative border-y-4 border-[#1a1c23] overflow-hidden shadow-inner">
         {/* Payline */}
-        <div className="absolute top-1/2 left-[10%] right-[10%] h-[90px] -translate-y-1/2 border-t border-b border-accent/50 bg-yellow-400/5 pointer-events-none z-10 flex justify-between items-center px-2">
+        <div className="absolute top-1/2 left-[0%] right-[00%] h-[90px] -translate-y-1/2 border-t border-b border-accent/50 bg-yellow-400/5 pointer-events-none z-10 flex justify-between items-center px-2">
           <span className="text-accent text-lg">▶</span>
           <span className="text-accent text-lg">◀</span>
         </div>

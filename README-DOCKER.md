@@ -44,6 +44,16 @@ The following directories are mounted as volumes to persist data:
 
 These directories will be created automatically if they don't exist.
 
+**Important:** If you encounter permission issues with file uploads, ensure the directories exist on the host and have proper permissions:
+
+```bash
+# Create directories with proper permissions
+mkdir -p data public/rewards public/background
+chmod -R 775 data public/rewards public/background
+```
+
+Or let Docker create them automatically - the entrypoint script will set the correct permissions.
+
 ## Environment Variables
 
 You can customize the application by creating a `.env` file or modifying the `environment` section in `docker-compose.yml`:
@@ -87,6 +97,45 @@ docker-compose ps
 ### Build fails
 - Clear Docker cache: `docker system prune -a`
 - Rebuild without cache: `docker-compose build --no-cache`
+
+### Cannot upload images
+If you're getting permission errors when uploading images:
+
+1. **Check container logs:**
+   ```bash
+   docker-compose logs lucky-draw | grep -i "permission\|error\|upload"
+   ```
+
+2. **Verify directory permissions on host:**
+   ```bash
+   ls -la data public/rewards public/background
+   ```
+
+3. **Fix permissions manually (if needed):**
+   ```bash
+   sudo chown -R $USER:$USER data public/rewards public/background
+   sudo chmod -R 775 data public/rewards public/background
+   ```
+
+4. **Restart the container:**
+   ```bash
+   docker-compose restart lucky-draw
+   ```
+
+5. **Check entrypoint script ran correctly:**
+   ```bash
+   docker-compose exec lucky-draw ls -la /app/public/rewards
+   docker-compose exec lucky-draw ls -la /app/public/background
+   ```
+
+6. **If still having issues, exec into container and check:**
+   ```bash
+   docker-compose exec lucky-draw sh
+   # Inside container:
+   id
+   ls -la /app/public/rewards
+   touch /app/public/rewards/test.txt
+   ```
 
 ## Development Mode
 

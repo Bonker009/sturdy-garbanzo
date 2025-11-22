@@ -23,15 +23,50 @@ const BackgroundUpload = forwardRef<BackgroundUploadRef, BackgroundUploadProps>(
     }));
 
     useEffect(() => {
-      const savedBackground = localStorage.getItem("lucky-draw-background");
-      if (savedBackground) {
-        onBackgroundChange(savedBackground);
-      }
+      // Load background from API
+      fetch("/api/settings")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.backgroundImage) {
+            onBackgroundChange(data.backgroundImage);
+          }
+        })
+        .catch((error) => {
+          console.error("Error loading background:", error);
+        });
     }, [onBackgroundChange]);
 
     const handleBackgroundUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
+
+      // Client-side validation
+      const validImageTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp", "image/bmp", "image/svg+xml"];
+      const validExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"];
+      const fileExtension = "." + file.name.split(".").pop()?.toLowerCase();
+
+      // Check file type
+      const isValidType = file.type && validImageTypes.includes(file.type.toLowerCase());
+      // Check file extension as fallback
+      const isValidExtension = validExtensions.includes(fileExtension);
+
+      if (!isValidType && !isValidExtension) {
+        alert("Please select a valid image file (JPEG, PNG, GIF, WebP, BMP, or SVG)");
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        return;
+      }
+
+      // Check file size (max 10MB)
+      const maxSize = 10 * 1024 * 1024; // 10MB
+      if (file.size > maxSize) {
+        alert("File size must be less than 10MB");
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        return;
+      }
 
       setIsUploading(true);
       try {
@@ -50,7 +85,14 @@ const BackgroundUpload = forwardRef<BackgroundUploadRef, BackgroundUploadProps>(
         }
 
         if (data.success && data.imageUrl) {
-          localStorage.setItem("lucky-draw-background", data.imageUrl);
+          // Save to API instead of localStorage
+          await fetch("/api/settings", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ backgroundImage: data.imageUrl }),
+          });
           onBackgroundChange(data.imageUrl);
         }
       } catch (error) {

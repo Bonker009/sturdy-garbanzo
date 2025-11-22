@@ -55,7 +55,7 @@ export default function RewardsList({
               </p>
               <div className="w-full bg-white/10 rounded-full h-1.5 mt-2 overflow-hidden">
                 <div
-                  className="h-full bg-linear-to-r from-primary to-accent"
+                  className="h-full bg-gradient-to-r from-primary to-accent"
                   style={{
                     width: `${(reward.remainingQuantity / reward.totalQuantity) * 100
                       }%`,

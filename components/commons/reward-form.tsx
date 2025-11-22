@@ -120,7 +120,7 @@ export default function RewardForm({ onAddReward }: RewardFormProps) {
  
         <Button
           onClick={handleSubmit}
-          className="w-full bg-linear-to-b from-[#cfaa5b] to-[#9e7c28] text-primary-foreground font-bold uppercase tracking-widest rounded-sm hover:from-[#e6c475] hover:to-[#b38f34] mt-4"
+          className="w-full bg-gradient-to-b from-[#cfaa5b] to-[#9e7c28] text-primary-foreground font-bold uppercase tracking-widest rounded-sm hover:from-[#e6c475] hover:to-[#b38f34] mt-4"
         >
           Add Reward
         </Button>

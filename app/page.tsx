@@ -32,13 +32,27 @@ export default function Home() {
   const updateRewardMutation = useUpdateReward();
   const [currentWinner, setCurrentWinner] = useState("");
   const [selectedReward, setSelectedReward] = useState<Reward | null>(null);
+  const [currentRewardId, setCurrentRewardId] = useState<string | null>(null);
   const [winnerModalOpen, setWinnerModalOpen] = useState(false);
   const [rewardSelectModalOpen, setRewardSelectModalOpen] = useState(false);
   const [backgroundImage, setBackgroundImage] = useState<string>("");
+  const [audioUrl, setAudioUrl] = useState<string>("");
+  const [drawMode, setDrawMode] = useState<"one-by-one" | "all-at-once">("one-by-one");
+  const [showCongratulationModal, setShowCongratulationModal] = useState<boolean>(true);
   const [participants, setParticipants] = useState<string[]>([]);
+  const [isDrawingMultiple, setIsDrawingMultiple] = useState(false);
+  const [drawQueue, setDrawQueue] = useState<{ rewardId: string; participants: string[]; remaining: number } | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const drawingStageRef = useRef<{ animate: (callback: (winner: string) => void, filteredParticipants?: string[]) => void }>(null);
   const confettiRef = useRef<{ start: () => void; stop: () => void }>(null);
   const isWaiting = rewards.length === 0;
+
+  // Reset winners list when a new reward is selected
+  useEffect(() => {
+    if (selectedReward && selectedReward.id !== currentRewardId) {
+      setCurrentRewardId(selectedReward.id);
+    }
+  }, [selectedReward, currentRewardId]);
 
   // Sync selectedReward when rewards update
   useEffect(() => {
@@ -55,6 +69,7 @@ export default function Home() {
       } else {
         // Reward was deleted, clear selection
         setSelectedReward(null);
+        setCurrentRewardId(null);
       }
     }
   }, [rewards, selectedReward]);
@@ -71,16 +86,35 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const savedBackground = localStorage.getItem("lucky-draw-background");
-    if (savedBackground) {
-      setBackgroundImage(savedBackground);
-    }
+    // Load settings from API
+    fetch("/api/settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.backgroundImage) {
+          setBackgroundImage(data.backgroundImage);
+        }
+        if (data.audioUrl) {
+          setAudioUrl(data.audioUrl);
+        }
+        if (data.drawMode) {
+          setDrawMode(data.drawMode);
+        } else {
+          setDrawMode("one-by-one");
+        }
+        if (data.showCongratulationModal !== undefined) {
+          setShowCongratulationModal(data.showCongratulationModal);
+        } else {
+          setShowCongratulationModal(true);
+        }
+      })
+      .catch((error) => {
+        console.error("Error loading settings:", error);
+      });
   }, []);
 
 
-  const handleDrawWinner = (reward: Reward) => {
+  const handleDrawWinner = async (reward: Reward) => {
     if (reward.remainingQuantity <= 0) {
-      alert("This reward has no remaining quantity available!");
       return;
     }
 
@@ -91,61 +125,216 @@ export default function Home() {
     );
 
     if (availableParticipants.length === 0) {
-      alert("No more participants available! All participants have already won a reward.");
       return;
     }
 
     setSelectedReward(reward);
 
-    if (drawingStageRef.current) {
-      // Store reward ID and available participants for use in callback
-      const rewardId = reward.id;
-      const filteredParticipants = availableParticipants;
-      
-      drawingStageRef.current.animate((winner: string) => {
-        setCurrentWinner(winner);
+    // Check draw mode
+    if (drawMode === "all-at-once") {
+      // Draw all remaining winners one by one with slot machine animation
+      const quantityToDraw = Math.min(reward.remainingQuantity, availableParticipants.length);
 
-        // Get the latest rewards data from the query cache to avoid stale closures
-        const latestRewards = queryClient.getQueryData<Reward[]>(["rewards"]) || rewards;
-        const currentReward = latestRewards.find((r) => r.id === rewardId);
+      // Set up the drawing queue
+      setIsDrawingMultiple(true);
+      setDrawQueue({
+        rewardId: reward.id,
+        participants: availableParticipants,
+        remaining: quantityToDraw,
+      });
+
+      // Start drawing the first winner
+      if (drawingStageRef.current) {
+        const rewardId = reward.id;
+        let currentAvailable = [...availableParticipants];
+        let winnersDrawn: string[] = [];
+        let remainingCount = quantityToDraw;
+
+        const drawNext = () => {
+          if (remainingCount <= 0) {
+            // All winners drawn, show modal with last winner if enabled
+            setIsDrawingMultiple(false);
+            setDrawQueue(null);
+            if (winnersDrawn.length > 0 && showCongratulationModal) {
+              setCurrentWinner(winnersDrawn[winnersDrawn.length - 1]);
+              setWinnerModalOpen(true);
+            }
+            return;
+          }
+
+          // Get latest data to filter out already drawn winners
+          const latestRewards = queryClient.getQueryData<Reward[]>(["rewards"]) || rewards;
+          const latestAllWinners = latestRewards.flatMap((r) => r.winners);
+          const filtered = currentAvailable.filter(
+            (p) => !latestAllWinners.includes(p) && !winnersDrawn.includes(p)
+          );
+
+          if (filtered.length === 0) {
+            // No more participants
+            setIsDrawingMultiple(false);
+            setDrawQueue(null);
+            if (winnersDrawn.length > 0 && showCongratulationModal) {
+              setCurrentWinner(winnersDrawn[winnersDrawn.length - 1]);
+              setWinnerModalOpen(true);
+            }
+            return;
+          }
+
+          // Animate slot machine for this winner
+          if (!drawingStageRef.current) {
+            setIsDrawingMultiple(false);
+            setDrawQueue(null);
+            return;
+          }
+
+          drawingStageRef.current.animate((winner: string) => {
+            winnersDrawn.push(winner);
+            remainingCount--;
+            currentAvailable = currentAvailable.filter((p) => p !== winner);
+
+            // Get latest reward data
+            const latestRewards = queryClient.getQueryData<Reward[]>(["rewards"]) || rewards;
+            const currentReward = latestRewards.find((r) => r.id === rewardId);
+            
+            if (!currentReward) {
+              console.error("Reward not found:", rewardId);
+              setIsDrawingMultiple(false);
+              setDrawQueue(null);
+              return;
+            }
+
+            // Update reward with this winner
+            updateRewardMutation.mutate({
+              id: rewardId,
+              data: {
+                remainingQuantity: currentReward.remainingQuantity - 1,
+                winners: [...currentReward.winners, winner],
+              },
+            }, {
+              onSuccess: () => {
+                // Show modal and play audio for this winner if enabled
+                if (showCongratulationModal) {
+                  setCurrentWinner(winner);
+                  setWinnerModalOpen(true);
+                  
+                  // Play audio if available
+                  if (audioUrl && audioRef.current) {
+                    audioRef.current.load();
+                    audioRef.current.currentTime = 0;
+                    audioRef.current.play().catch((error) => {
+                      console.error("Error playing audio:", error);
+                    });
+                  }
+                  
+                  // Start confetti
+                  if (confettiRef.current) {
+                    confettiRef.current.start();
+                  }
+                  
+                  // Close modal after display, then continue to next winner
+                  setTimeout(() => {
+                    setWinnerModalOpen(false);
+                    if (confettiRef.current) {
+                      confettiRef.current.stop();
+                    }
+                    if (audioRef.current) {
+                      audioRef.current.pause();
+                      audioRef.current.currentTime = 0;
+                    }
+                    
+                    // Wait a bit more before drawing next winner
+                    setTimeout(() => {
+                      drawNext();
+                    }, 500);
+                  }, 6000); // Show modal for 6 seconds (increased from 3)
+                } else {
+                  // Just play audio without modal
+                  if (audioUrl && audioRef.current) {
+                    audioRef.current.load();
+                    audioRef.current.currentTime = 0;
+                    audioRef.current.play().catch((error) => {
+                      console.error("Error playing audio:", error);
+                    });
+                  }
+                  
+                  // Wait before drawing next winner
+                  setTimeout(() => {
+                    drawNext();
+                  }, 2000);
+                }
+              },
+              onError: (error) => {
+                console.error("Failed to update reward:", error);
+                setIsDrawingMultiple(false);
+                setDrawQueue(null);
+              }
+            });
+          }, filtered);
+        };
+
+        // Start the first draw
+        drawNext();
+      }
+    } else {
+      // Draw one by one (original behavior)
+      if (drawingStageRef.current) {
+        // Store reward ID and available participants for use in callback
+        const rewardId = reward.id;
+        const filteredParticipants = availableParticipants;
         
-        if (!currentReward) {
-          console.error("Reward not found:", rewardId);
-          return;
-        }
+        drawingStageRef.current.animate((winner: string) => {
+          setCurrentWinner(winner);
 
-        if (currentReward.remainingQuantity <= 0) {
-          console.warn("Reward has no remaining quantity:", currentReward);
-          return;
-        }
+          // Get the latest rewards data from the query cache to avoid stale closures
+          const latestRewards = queryClient.getQueryData<Reward[]>(["rewards"]) || rewards;
+          const currentReward = latestRewards.find((r) => r.id === rewardId);
+          
+          if (!currentReward) {
+            console.error("Reward not found:", rewardId);
+            return;
+          }
 
-        // Verify the winner is still available (double-check)
-        const latestAllWinners = latestRewards.flatMap((r) => r.winners);
-        if (latestAllWinners.includes(winner)) {
-          alert("This participant has already won a reward. Please draw again.");
-          return;
-        }
+          if (currentReward.remainingQuantity <= 0) {
+            console.warn("Reward has no remaining quantity:", currentReward);
+            return;
+          }
 
-        // Update reward on server using mutation (this will auto-invalidate and refetch)
-        updateRewardMutation.mutate({
-          id: rewardId,
-          data: {
-            remainingQuantity: currentReward.remainingQuantity - 1,
-            winners: [...currentReward.winners, winner],
-          },
-        }, {
+          // Verify the winner is still available (double-check)
+          const latestAllWinners = latestRewards.flatMap((r) => r.winners);
+          if (latestAllWinners.includes(winner)) {
+            console.warn("This participant has already won a reward.");
+            return;
+          }
+
+          // Update reward on server using mutation (this will auto-invalidate and refetch)
+          updateRewardMutation.mutate({
+            id: rewardId,
+            data: {
+              remainingQuantity: currentReward.remainingQuantity - 1,
+              winners: [...currentReward.winners, winner],
+            },
+          }, {
           onError: (error) => {
             console.error("Failed to update reward:", error);
-            alert("Failed to update reward. Please try again.");
           }
-        });
+          });
 
-        setWinnerModalOpen(true);
-      }, filteredParticipants);
+          if (showCongratulationModal) {
+            setWinnerModalOpen(true);
+          }
+        }, filteredParticipants);
+      }
     }
   };
 
-  // Start confetti when modal opens
+  // Load audio when audioUrl changes
+  useEffect(() => {
+    if (audioUrl && audioRef.current) {
+      audioRef.current.load();
+    }
+  }, [audioUrl]);
+
+  // Start confetti and play audio when modal opens
   useEffect(() => {
     if (winnerModalOpen) {
       // Small delay to ensure the confetti component is mounted and rendered
@@ -153,15 +342,46 @@ export default function Home() {
         if (confettiRef.current) {
           confettiRef.current.start();
         }
-      }, 50);
+        // Play audio if available
+        if (audioUrl && audioRef.current) {
+          // Ensure audio is loaded
+          audioRef.current.load();
+          audioRef.current.currentTime = 0; // Reset to beginning
+          
+          // Try to play audio
+          const playPromise = audioRef.current.play();
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => {
+                console.log("Audio playing successfully");
+              })
+              .catch((error) => {
+                console.error("Error playing audio:", error);
+                // Try again after a short delay (user interaction might be needed)
+                setTimeout(() => {
+                  if (audioRef.current) {
+                    audioRef.current.play().catch((err) => {
+                      console.error("Retry audio play failed:", err);
+                    });
+                  }
+                }, 100);
+              });
+          }
+        }
+      }, 100);
       return () => clearTimeout(timer);
     } else {
       // Stop confetti when modal closes
       if (confettiRef.current) {
         confettiRef.current.stop();
       }
+      // Stop audio when modal closes
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
     }
-  }, [winnerModalOpen]);
+  }, [winnerModalOpen, audioUrl]);
 
 
   const handleCloseModal = () => {
@@ -170,6 +390,7 @@ export default function Home() {
       confettiRef.current.stop();
     }
   };
+
 
   return (
     <>
@@ -204,6 +425,21 @@ export default function Home() {
         .winner-name-animated {
           animation: winnerReveal 1.2s ease-out, winnerPulse 2s ease-in-out infinite 1.2s;
         }
+        
+        @keyframes winnerSlideIn {
+          from {
+            opacity: 0;
+            transform: translateX(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+        
+        .winner-item {
+          animation: winnerSlideIn 0.4s ease-out;
+        }
       `}</style>
       <div
         className="min-h-screen flex flex-col bg-background"
@@ -222,35 +458,79 @@ export default function Home() {
 
       {/* Selected Reward Display - Left Side */}
       {selectedReward && (
-        <div className="fixed left-6 top-1/2 -translate-y-1/2 z-40 pointer-events-none">
-          <div className="pointer-events-auto bg-card/95 backdrop-blur-sm border border-primary/20 rounded-lg p-4 shadow-xl max-w-[200px]">
-            <div className="flex flex-col items-center gap-3">
-              <div className="relative w-32 h-32 rounded-lg overflow-hidden border-2 border-primary/30 bg-muted">
+        <div className="fixed left-6 top-1/2 -translate-y-1/2 z-40 pointer-events-none ">
+          <div className="pointer-events-auto bg-linear-to-br from-[#1e293b] to-[#0f172a] backdrop-blur-sm border-2 border-[#d4af37]/40 rounded-lg p-6 shadow-2xl shadow-[#d4af37]/20 max-w-[400px] w-[400px]">
+            {/* Reward Info */}
+            <div className="flex flex-col items-center gap-4">
+              <div className="relative w-64 h-64 rounded-lg overflow-hidden border-2 border-[#d4af37]/50 bg-muted shadow-lg shadow-[#d4af37]/20">
                 <Image
                   src={selectedReward.image || "/placeholder.svg"}
                   alt={selectedReward.name}
                   fill
                   className="object-cover"
-                  sizes="128px"
+                  sizes="256px"
                 />
               </div>
-              <div className="text-center">
-                <p className="text-sm font-semibold text-foreground mb-1">
+              <div className="text-center w-full">
+                <p className="text-3xl font-bold bg-linear-to-r from-[#d4af37] to-[#fbf5b3] bg-clip-text text-transparent mb-2">
                   {selectedReward.name}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xl font-semibold text-[#d4af37]">
                   {selectedReward.remainingQuantity} remaining
                 </p>
               </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setSelectedReward(null)}
-                className="text-xs text-muted-foreground hover:text-destructive"
-              >
-                <X className="h-3 w-3 mr-1" />
-                Clear
-              </Button>
+              <div className="flex gap-2 w-full">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelectedReward(null)}
+                  className="text-xs text-muted-foreground hover:text-destructive border border-[#d4af37]/20"
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  Clear
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Winners List - Right Side */}
+      {selectedReward && (
+        <div
+          key={currentRewardId}
+          className="fixed right-6 top-1/2 -translate-y-1/2 z-40 pointer-events-none w-full max-w-[500px]"
+        >
+          <div className="pointer-events-auto bg-linear-to-br from-[#1e293b] to-[#0f172a] backdrop-blur-sm border-2 border-[#d4af37]/40 rounded-lg p-4 shadow-2xl shadow-[#d4af37]/20 max-w-[500px] max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="mb-3">
+              <h3 className="text-2xl font-bold text-[#d4af37] uppercase tracking-widest mb-2 flex items-center gap-1">
+                <Users className="h-3 w-3" />
+                Winners ({selectedReward.winners.length})
+              </h3>
+            </div>
+            <div className="flex-1 overflow-y-auto pr-2">
+              {selectedReward.winners.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className=" text-muted-foreground italic text-4xl">
+                    No winners yet
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {selectedReward.winners.map((winner, idx) => (
+                    <div
+                      key={`${currentRewardId}-${idx}-${winner}`}
+                      className="winner-item bg-linear-to-r from-[#d4af37]/20 to-[#bf953f]/20 border border-[#d4af37]/40 rounded-lg px-3 py-2 text-xs text-[#fbf5b3] shadow-sm flex items-center gap-2 transition-all duration-300 hover:border-[#d4af37]/60 hover:shadow-md hover:shadow-[#d4af37]/20"
+                      style={{ animationDelay: `${idx * 50}ms` }}
+                    >
+                      <span className="text-[#d4af37] font-bold min-w-6 flex items-center justify-center w-6 h-6 rounded-full bg-[#d4af37]/30 border border-[#d4af37]/50 shadow-sm text-2xl">
+                        {idx + 1}
+                      </span>
+                      <span className="truncate font-medium text-2xl">{winner}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -273,13 +553,16 @@ export default function Home() {
           <DrawingStage
             ref={drawingStageRef}
             selectedReward={selectedReward}
-            participants={participants}
+            participants={
+              // Filter out all winners from all rewards to prevent duplicates in slot machine
+              rewards.length > 0 && participants.length > 0
+                ? participants.filter(
+                    (p) => !rewards.flatMap((r) => r.winners).includes(p)
+                  )
+                : participants
+            }
             onDrawClick={() => {
               if (selectedReward) {
-                if (selectedReward.remainingQuantity <= 0) {
-                  alert("This reward has no remaining quantity available!");
-                  return;
-                }
                 handleDrawWinner(selectedReward);
               } else {
                 setRewardSelectModalOpen(true);
@@ -358,11 +641,6 @@ export default function Home() {
                       }`}
                       onClick={() => {
                         if (!canDraw) {
-                          if (reward.remainingQuantity <= 0) {
-                            alert("This reward has no remaining quantity available!");
-                          } else if (availableCount === 0) {
-                            alert("No more participants available! All participants have already won a reward.");
-                          }
                           return;
                         }
                         setSelectedReward(reward);
@@ -535,6 +813,20 @@ export default function Home() {
           <ConfettiEffect ref={confettiRef} />
         </div>
       )}
+
+      {/* Audio element for winner announcement */}
+      <audio
+        ref={audioRef}
+        src={audioUrl || undefined}
+        preload="auto"
+        className="hidden"
+        onLoadedData={() => {
+          console.log("Audio loaded successfully");
+        }}
+        onError={(e) => {
+          console.error("Audio error:", e);
+        }}
+      />
       </div>
     </>
   );
